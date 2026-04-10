@@ -1,4 +1,4 @@
-import { handleToolCall, getConsoleLogs, getScreenshots, registerConsoleMessage } from '../toolHandler.js';
+import { handleToolCall, getConsoleLogs, getScreenshots, registerConsoleMessage, resetBrowserState } from '../toolHandler.js';
 import { Browser, Page, chromium, firefox, webkit } from 'playwright';
 import { jest } from '@jest/globals';
 
@@ -60,9 +60,12 @@ jest.mock('playwright', () => {
   };
 
   const mockNewPage = jest.fn().mockImplementation(() => Promise.resolve(mockPage));
-  const mockContexts = jest.fn().mockReturnValue([]);
+  const mockPages = jest.fn().mockReturnValue([mockPage]);
   const mockContext = {
-    newPage: mockNewPage
+    newPage: mockNewPage,
+    pages: mockPages,
+    browser: jest.fn(),
+    close: jest.fn().mockImplementation(() => Promise.resolve()),
   };
 
   const mockNewContext = jest.fn().mockImplementation(() => Promise.resolve(mockContext));
@@ -75,8 +78,10 @@ jest.mock('playwright', () => {
     close: mockClose,
     on: mockBrowserOn,
     isConnected: mockIsConnected,
-    contexts: mockContexts
+    contexts: jest.fn().mockReturnValue([mockContext])
   };
+
+  mockContext.browser.mockReturnValue(mockBrowser);
 
   // Mock API responses
   const mockStatus200 = jest.fn().mockReturnValue(200);
@@ -134,17 +139,21 @@ jest.mock('playwright', () => {
   };
 
   const mockLaunch = jest.fn().mockImplementation(() => Promise.resolve(mockBrowser));
+  const mockLaunchPersistentContext = jest.fn().mockImplementation(() => Promise.resolve(mockContext));
   const mockNewApiContext = jest.fn().mockImplementation(() => Promise.resolve(mockApiContext));
 
   return {
     chromium: {
-      launch: mockLaunch
+      launch: mockLaunch,
+      launchPersistentContext: mockLaunchPersistentContext
     },
     firefox: {
-      launch: mockLaunch
+      launch: mockLaunch,
+      launchPersistentContext: mockLaunchPersistentContext
     },
     webkit: {
-      launch: mockLaunch
+      launch: mockLaunch,
+      launchPersistentContext: mockLaunchPersistentContext
     },
     request: {
       newContext: mockNewApiContext
@@ -167,6 +176,9 @@ const mockServer = {
 describe('Tool Handler', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    resetBrowserState();
+    delete process.env.CHROME_EXECUTABLE_PATH;
+    delete process.env.CHROME_EXIST_USER_PROFILE;
   });
 
   test('handleToolCall should handle unknown tool', async () => {
@@ -393,7 +405,26 @@ describe('Tool Handler', () => {
     if (result.content[0].type === 'text') {
       expect(result.content[0].text).toContain('Navigated to');
     }
-    delete process.env.CHROME_EXECUTABLE_PATH;
+    expect((chromium.launch as jest.Mock).mock.calls[0][0]).toMatchObject({
+      executablePath: mockExecutablePath
+    });
+  });
+
+  test('should use launchPersistentContext when CHROME_EXIST_USER_PROFILE is set', async () => {
+    const mockExecutablePath = '/path/to/chrome';
+    const mockUserProfile = '/path/to/user-profile';
+    process.env.CHROME_EXECUTABLE_PATH = mockExecutablePath;
+    process.env.CHROME_EXIST_USER_PROFILE = mockUserProfile;
+
+    await handleToolCall('playwright_navigate', { url: 'about:blank' }, mockServer);
+
+    expect(chromium.launchPersistentContext).toHaveBeenCalledWith(
+      mockUserProfile,
+      expect.objectContaining({
+        executablePath: mockExecutablePath
+      })
+    );
+    expect(chromium.launch).not.toHaveBeenCalled();
   });
 
   test('should not launch browser for API tools', async () => {

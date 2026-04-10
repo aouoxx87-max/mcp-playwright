@@ -1,4 +1,4 @@
-import type { Browser, Page } from 'playwright';
+import type { Browser, BrowserContext, Page } from 'playwright';
 import { chromium, firefox, webkit, request } from 'playwright';
 import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 import { BROWSER_TOOLS, API_TOOLS } from './tools.js';
@@ -49,6 +49,7 @@ import { ClickAndSwitchTabTool } from './tools/browser/interaction.js';
 
 // Global state
 let browser: Browser | undefined;
+let browserContext: BrowserContext | undefined;
 let page: Page | undefined;
 let currentBrowserType: 'chromium' | 'firefox' | 'webkit' = 'chromium';
 
@@ -58,6 +59,7 @@ let currentBrowserType: 'chromium' | 'firefox' | 'webkit' = 'chromium';
  */
 export function resetBrowserState() {
   browser = undefined;
+  browserContext = undefined;
   page = undefined;
   currentBrowserType = 'chromium';
 }
@@ -112,6 +114,73 @@ interface BrowserSettings {
   userAgent?: string;
   headless?: boolean;
   browserType?: 'chromium' | 'firefox' | 'webkit';
+}
+
+function getBrowserInstance(browserType: 'chromium' | 'firefox' | 'webkit') {
+  switch (browserType) {
+    case 'firefox':
+      return firefox;
+    case 'webkit':
+      return webkit;
+    case 'chromium':
+    default:
+      return chromium;
+  }
+}
+
+function getContextOptions(browserSettings?: BrowserSettings) {
+  const { viewport, userAgent } = browserSettings ?? {};
+
+  return {
+    ...(userAgent ? { userAgent } : {}),
+    viewport: {
+      width: viewport?.width ?? 1280,
+      height: viewport?.height ?? 720,
+    },
+    deviceScaleFactor: 1,
+  };
+}
+
+async function launchBrowserWithSettings(browserSettings?: BrowserSettings): Promise<void> {
+  const { headless = false, browserType = 'chromium' } = browserSettings ?? {};
+  const browserInstance = getBrowserInstance(browserType);
+  const executablePath = process.env.CHROME_EXECUTABLE_PATH;
+  const userDataDir = process.env.CHROME_EXIST_USER_PROFILE;
+  const contextOptions = getContextOptions(browserSettings);
+
+  if (userDataDir) {
+    const persistentContext = await browserInstance.launchPersistentContext(userDataDir, {
+      headless,
+      executablePath,
+      ...contextOptions,
+    });
+    const persistentBrowser = persistentContext.browser();
+
+    if (!persistentBrowser) {
+      await persistentContext.close().catch(() => {});
+      throw new Error('Failed to get browser instance from persistent context');
+    }
+
+    browserContext = persistentContext;
+    browser = persistentBrowser;
+    page = persistentContext.pages()[0] ?? await persistentContext.newPage();
+  } else {
+    browser = await browserInstance.launch({
+      headless,
+      executablePath,
+    });
+
+    browserContext = await browser.newContext(contextOptions);
+    page = await browserContext.newPage();
+  }
+
+  currentBrowserType = browserType;
+
+  browser.on('disconnected', () => {
+    resetBrowserState();
+  });
+
+  await registerConsoleMessage(page);
 }
 
 async function registerConsoleMessage(page) {
@@ -219,6 +288,8 @@ async function installBrowsers(browserType: string = 'chromium'): Promise<{ succ
  * Ensures a browser is launched and returns the page
  */
 export async function ensureBrowser(browserSettings?: BrowserSettings) {
+  const { browserType = 'chromium' } = browserSettings ?? {};
+
   try {
     // Check if browser exists but is disconnected
     if (browser && !browser.isConnected()) {
@@ -231,44 +302,20 @@ export async function ensureBrowser(browserSettings?: BrowserSettings) {
       resetBrowserState();
     }
 
+    // Recreate the browser if the requested engine changed.
+    if (browser && currentBrowserType !== browserType) {
+      try {
+        await browser.close().catch(() => {});
+      } catch (e) {
+        // Ignore errors
+      }
+      resetBrowserState();
+    }
+
     // Launch new browser if needed
     if (!browser) {
-      const { viewport, userAgent, headless = false, browserType = 'chromium' } = browserSettings ?? {};
-      
-      // If browser type is changing, force a new browser instance
-      if (browser && currentBrowserType !== browserType) {
-        try {
-          await browser.close().catch(() => {});
-        } catch (e) {
-          // Ignore errors
-        }
-        resetBrowserState();
-      }
-
-      // Use the appropriate browser engine
-      let browserInstance;
-      switch (browserType) {
-        case 'firefox':
-          browserInstance = firefox;
-          break;
-        case 'webkit':
-          browserInstance = webkit;
-          break;
-        case 'chromium':
-        default:
-          browserInstance = chromium;
-          break;
-      }
-      
-      const executablePath = process.env.CHROME_EXECUTABLE_PATH;
-
       try {
-        browser = await browserInstance.launch({
-          headless,
-          executablePath: executablePath
-        });
-        
-        currentBrowserType = browserType;
+        await launchBrowserWithSettings(browserSettings);
       } catch (launchError: any) {
         // Check if error is due to missing browser executable
         if (launchError.message?.includes("Executable doesn't exist") || 
@@ -279,12 +326,7 @@ export async function ensureBrowser(browserSettings?: BrowserSettings) {
           const installResult = await installBrowsers(browserType);
           
           if (installResult.success) {
-            // Try launching again after installation
-            browser = await browserInstance.launch({
-              headless,
-              executablePath: executablePath
-            });
-            currentBrowserType = browserType;
+            await launchBrowserWithSettings(browserSettings);
           } else {
             throw new Error(installResult.message);
           }
@@ -293,32 +335,13 @@ export async function ensureBrowser(browserSettings?: BrowserSettings) {
         }
       }
 
-      // Add cleanup logic when browser is disconnected
-      browser.on('disconnected', () => {
-        browser = undefined;
-        page = undefined;
-      });
-
-      const context = await browser.newContext({
-        ...userAgent && { userAgent },
-        viewport: {
-          width: viewport?.width ?? 1280,
-          height: viewport?.height ?? 720,
-        },
-        deviceScaleFactor: 1,
-      });
-
-      page = await context.newPage();
-
-      // Register console message handler
-      await registerConsoleMessage(page);
     }
     
     // Verify page is still valid
     if (!page || page.isClosed()) {
       // Create a new page if the current one is invalid
-      const context = browser.contexts()[0] || await browser.newContext();
-      page = await context.newPage();
+      browserContext = browserContext ?? browser?.contexts()[0] ?? await browser!.newContext(getContextOptions(browserSettings));
+      page = browserContext.pages()[0] ?? await browserContext.newPage();
 
       // Re-register console message handler
       await registerConsoleMessage(page);
@@ -354,43 +377,7 @@ export async function ensureBrowser(browserSettings?: BrowserSettings) {
     }
     
     // Try one more time from scratch
-    const { viewport, userAgent, headless = false, browserType = 'chromium' } = browserSettings ?? {};
-    
-    // Use the appropriate browser engine
-    let browserInstance;
-    switch (browserType) {
-      case 'firefox':
-        browserInstance = firefox;
-        break;
-      case 'webkit':
-        browserInstance = webkit;
-        break;
-      case 'chromium':
-      default:
-        browserInstance = chromium;
-        break;
-    }
-    
-    browser = await browserInstance.launch({ headless });
-    currentBrowserType = browserType;
-
-    browser.on('disconnected', () => {
-      browser = undefined;
-      page = undefined;
-    });
-
-    const context = await browser.newContext({
-      ...userAgent && { userAgent },
-      viewport: {
-        width: viewport?.width ?? 1280,
-        height: viewport?.height ?? 720,
-      },
-      deviceScaleFactor: 1,
-    });
-
-    page = await context.newPage();
-    
-    await registerConsoleMessage(page);
+    await launchBrowserWithSettings(browserSettings);
     
     return page!;
   }
