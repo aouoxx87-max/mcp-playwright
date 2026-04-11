@@ -12,6 +12,7 @@ import {
   clearCodegenSession
 } from './tools/codegen/index.js';
 import { 
+  DoradoMetricFlinkScreenshotTool,
   ScreenshotTool,
   NavigationTool,
   CloseBrowserTool,
@@ -104,6 +105,11 @@ let dragTool: DragTool;
 let pressKeyTool: PressKeyTool;
 let saveAsPdfTool: SaveAsPdfTool;
 let clickAndSwitchTabTool: ClickAndSwitchTabTool;
+let doradoMetricFlinkScreenshotTool: DoradoMetricFlinkScreenshotTool;
+
+function requiresBrowserContext(name: string): boolean {
+  return BROWSER_TOOLS.includes(name) || name === "dorado_metric_flink_screenshot";
+}
 
 
 interface BrowserSettings {
@@ -430,6 +436,7 @@ function initializeTools(server: any) {
   if (!pressKeyTool) pressKeyTool = new PressKeyTool(server);
   if (!saveAsPdfTool) saveAsPdfTool = new SaveAsPdfTool(server);
   if (!clickAndSwitchTabTool) clickAndSwitchTabTool = new ClickAndSwitchTabTool(server);
+  if (!doradoMetricFlinkScreenshotTool) doradoMetricFlinkScreenshotTool = new DoradoMetricFlinkScreenshotTool(server);
 }
 
 /**
@@ -454,6 +461,28 @@ export async function handleToolCall(
         return await handleCodegenResult(getCodegenSession.handler(args));
       case 'clear_codegen_session':
         return await handleCodegenResult(clearCodegenSession.handler(args));
+      case 'build_task_metric_url': {
+        if (!args?.task_id ) {
+          return {
+            content: [{
+              type: "text",
+              text: "task_id are required",
+            }],
+            isError: true,
+          };
+        }
+        if(!args?.project_id) {
+          args.project_id='cn_99'
+        }
+        const metricUrl = `https://data.bytedance.net/dorado/stream-task/detail?activeKey=runtimeMetric&project=${encodeURIComponent(args.project_id)}&taskId=${encodeURIComponent(args.task_id)}&subTab=metric_monitor`;
+        return {
+          content: [{
+            type: "text",
+            text: metricUrl,
+          }],
+          isError: false,
+        };
+      }
     }
 
     // Record tool action if there's an active session
@@ -493,7 +522,7 @@ export async function handleToolCall(
     }
 
     // Check if we have a disconnected browser that needs cleanup
-    if (browser && !browser.isConnected() && BROWSER_TOOLS.includes(name)) {
+    if (browser && !browser.isConnected() && requiresBrowserContext(name)) {
       try {
         await browser.close().catch(() => {}); // Ignore errors
       } catch (e) {
@@ -508,7 +537,7 @@ export async function handleToolCall(
   };
   
   // Set up browser if needed
-  if (BROWSER_TOOLS.includes(name)) {
+  if (requiresBrowserContext(name)) {
     const browserSettings = {
       viewport: {
         width: args.width,
@@ -634,6 +663,8 @@ export async function handleToolCall(
         return await saveAsPdfTool.execute(args, context);
       case "playwright_click_and_switch_tab":
         return await clickAndSwitchTabTool.execute(args, context);
+      case "dorado_metric_flink_screenshot":
+        return await doradoMetricFlinkScreenshotTool.execute(args, context);
       
       default:
         return {
@@ -646,7 +677,7 @@ export async function handleToolCall(
     }
   } catch (error) {
     // Handle browser-specific errors at the top level
-    if (BROWSER_TOOLS.includes(name)) {
+    if (requiresBrowserContext(name)) {
       const errorMessage = (error as Error).message;
       if (
         errorMessage.includes("Target page, context or browser has been closed") || 
@@ -712,7 +743,10 @@ export function getConsoleLogs(): string[] {
  * Get screenshots
  */
 export function getScreenshots(): Map<string, string> {
-  return screenshotTool?.getScreenshots() ?? new Map();
+  return new Map([
+    ...(screenshotTool?.getScreenshots().entries() ?? []),
+    ...(doradoMetricFlinkScreenshotTool?.getScreenshots().entries() ?? []),
+  ]);
 }
 
 export { registerConsoleMessage };

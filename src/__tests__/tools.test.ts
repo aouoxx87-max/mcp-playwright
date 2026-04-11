@@ -106,4 +106,22 @@ describe('Tool Definitions', () => {
     expect(resizeTool!.inputSchema.properties).toHaveProperty('orientation');
     expect(resizeTool!.inputSchema.required).toEqual([]);
   });
+
+  test('should validate build_task_metric_url schema', () => {
+    const metricUrlTool = toolDefinitions.find(tool => tool.name === 'build_task_metric_url');
+    expect(metricUrlTool).toBeDefined();
+    expect(metricUrlTool!.inputSchema.properties).toHaveProperty('task_id');
+    expect(metricUrlTool!.inputSchema.properties).toHaveProperty('project_id');
+    expect(metricUrlTool!.inputSchema.required).toEqual(['task_id', 'project_id']);
+  });
+
+  test('should validate dorado_metric_flink_screenshot schema', () => {
+    const doradoScreenshotTool = toolDefinitions.find(tool => tool.name === 'dorado_metric_flink_screenshot');
+    expect(doradoScreenshotTool).toBeDefined();
+    expect(doradoScreenshotTool!.inputSchema.properties).toHaveProperty('task_id');
+    expect(doradoScreenshotTool!.inputSchema.properties).toHaveProperty('project_id');
+    expect(doradoScreenshotTool!.inputSchema.properties).toHaveProperty('selector');
+    expect(doradoScreenshotTool!.inputSchema.properties).toHaveProperty('downloadsDir');
+    expect(doradoScreenshotTool!.inputSchema.required).toEqual(['task_id']);
+  });
 }); 

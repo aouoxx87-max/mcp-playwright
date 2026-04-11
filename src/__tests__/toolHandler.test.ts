@@ -190,6 +190,37 @@ describe('Tool Handler', () => {
     }
   });
 
+  test('handleToolCall should build task metric url', async () => {
+    const result = await handleToolCall('build_task_metric_url', {
+      task_id: '12345',
+      project_id: 'cn_99'
+    }, mockServer);
+
+    expect(result.isError).toBe(false);
+    expect(result.content[0].type).toBe('text');
+    if (result.content[0].type === 'text') {
+      expect(result.content[0].text).toBe(
+        'https://data.bytedance.net/dorado/stream-task/detail?activeKey=runtimeMetric&project=cn_99&taskId=12345&subTab=metric_monitor'
+      );
+    }
+  });
+
+  test('handleToolCall should take Dorado metric screenshot', async () => {
+    const result = await handleToolCall('dorado_metric_flink_screenshot', {
+      task_id: '12345',
+      project_id: 'cn_99',
+      name: 'metric-shot'
+    }, mockServer);
+
+    expect(result.isError).toBe(false);
+    expect(result.content[0].type).toBe('text');
+    if (result.content[0].type === 'text') {
+      expect(result.content[0].text).toContain(
+        'https://data.bytedance.net/dorado/stream-task/detail?activeKey=runtimeMetric&project=cn_99&taskId=12345&subTab=metric_monitor'
+      );
+    }
+  });
+
   // In the actual implementation, the tools might succeed or fail depending on how the mocks are set up
   // We'll just test that they complete without throwing exceptions
   

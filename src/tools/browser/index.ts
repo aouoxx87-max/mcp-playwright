@@ -1,4 +1,5 @@
 export * from './base.js';
+export * from './doradoWeb.js';
 export * from './screenshot.js';
 export * from './navigation.js';
 export * from './console.js';

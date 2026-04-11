@@ -494,9 +494,47 @@ export function createToolDefinitions() {
         required: ["selector"],
       },
     },
+    {
+      name: "build_task_metric_url",
+      description: "构建Dorado平台Flink任务的Metrics监控URL",
+      inputSchema: {
+        type: "object",
+        properties: {
+          task_id: { type: "string", description: "Task ID used in the metric monitor URL" },
+          project_id: { type: "string", description: "Project ID used in the metric monitor URL" },
+        },
+        required: ["task_id", "project_id"],
+      },
+    },
+    {
+      name: "dorado_metric_flink_screenshot",
+      description: "获取Dorado平台Flink任务的Metrics监控并对监控页面快照截图",
+      inputSchema: {
+        type: "object",
+        properties: {
+          task_id: { type: "string", description: "Task ID used in the Dorado metric monitor page" },
+          project_id: { type: "string", description: "Project ID used in the Dorado metric monitor page" },
+          name: { type: "string", description: "Name for the screenshot resource" },
+          selector: { type: "string", description: "Optional CSS selector for a specific metric widget" },
+          width: { type: "number", description: "Viewport width in pixels (default: 1280)" },
+          height: { type: "number", description: "Viewport height in pixels (default: 720)" },
+          timeout: { type: "number", description: "Navigation timeout in milliseconds" },
+          waitUntil: { type: "string", description: "Navigation wait condition" },
+          headless: { type: "boolean", description: "Run browser in headless mode (default: false)" },
+          storeBase64: { type: "boolean", description: "Store screenshot in base64 format (default: true)" },
+          fullPage: { type: "boolean", description: "Store screenshot of the entire page (default: true)" },
+          downloadsDir: { type: "string", description: "Custom downloads directory path (default: user's Downloads folder)" },
+        },
+        required: ["task_id"],
+      },
+    },
   ] as const satisfies Tool[];
 }
 
+export const DORADO_TOOLS = [
+  "build_task_metric_url",
+  "dorado_metric_flink_screenshot"
+];
 // Browser-requiring tools for conditional browser launch
 export const BROWSER_TOOLS = [
   "playwright_navigate",
@@ -541,9 +579,16 @@ export const CODEGEN_TOOLS = [
   'clear_codegen_session'
 ];
 
+// Utility tools
+export const UTILITY_TOOLS = [
+  "build_task_metric_url"
+];
+
 // All available tools
 export const tools = [
   ...BROWSER_TOOLS,
   ...API_TOOLS,
-  ...CODEGEN_TOOLS
+  ...CODEGEN_TOOLS,
+  ...UTILITY_TOOLS,
+  ...DORADO_TOOLS
 ];
